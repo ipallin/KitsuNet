@@ -91,8 +91,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
             }
         };
 
-        let mut previous_source_ip: Option<Ipv4Addr> = None;
-
         while let Ok(packet) = cap.next_packet() {
             let payload = packet.data;
 
@@ -104,28 +102,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
             if let Some(ethernet_packet) = EthernetPacket::new(payload) {
                 if ethernet_packet.get_ethertype() == pnet::packet::ethernet::EtherTypes::Ipv4 {
                     if let Some(ipv4_packet) = Ipv4Packet::new(ethernet_packet.payload()) {
-                        let current_source_ip = ipv4_packet.get_source();
-
-                        if let Some(prev_ip) = previous_source_ip {
-                            if current_source_ip != prev_ip {
-                                // Listen on the socket and skip one PCAP row for each packet received
-                                let mut buffer = [0; 1024];
-                                match socket.read(&mut buffer) {
-                                    Ok(_) => {
-                                        println!("Received packet on socket, skipping one PCAP row.");
-                                        continue;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to read from socket: {}. Retrying...", e);
-                                        thread::sleep(Duration::from_secs(5));
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-
-                        previous_source_ip = Some(current_source_ip);
-
                         if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
                             if tcp_packet.get_destination() == 2404 {
                                 let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
@@ -202,6 +178,20 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                                     thread::sleep(Duration::from_secs(5));
                                     continue;
                                 }
+                            } else {
+                                // Listen on the socket and skip one PCAP row for each packet received
+                                let mut buffer = [0; 1024];
+                                match socket.read(&mut buffer) {
+                                    Ok(_) => {
+                                        println!("Received packet on socket, skipping one PCAP row.");
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to read from socket: {}. Retrying...", e);
+                                        thread::sleep(Duration::from_secs(5));
+                                        continue;
+                                    }
+                                }
                             }
                         }
                     }
@@ -224,7 +214,6 @@ fn main() {
     let destination_ip = Ipv4Addr::new(192, 168, 12, 4);
     let remote_ip = Ipv4Addr::new(192, 168, 12, 4);
     let remote_port = 2404;
-
 
     let ueransim_thread = thread::spawn(|| {
         loop {
