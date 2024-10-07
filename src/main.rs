@@ -221,8 +221,8 @@ fn main() {
         .expect("Failed to grant");
     */
     let pcap_file = "industroyer2.pcap";
-    let destination_ip = Ipv4Addr::new(192, 168, 1, 9);
-    let remote_ip = Ipv4Addr::new(192, 168, 1, 9);
+    let destination_ip = Ipv4Addr::new(192, 168, 12, 4);
+    let remote_ip = Ipv4Addr::new(192, 168, 12, 4);
     let remote_port = 2404;
 
 
@@ -237,7 +237,7 @@ fn main() {
     // Empezar antes de ejecutar el otro hilo
     thread::sleep(Duration::from_secs(15));
 
-    let interface_name = "ens3";
+    let interface_name = "uesimtun0";
     let interface = loop {
         match find_interface(interface_name) {
             Some(iface) => break iface,
@@ -270,5 +270,5 @@ fn main() {
     process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
 
     // Esto hay que mejorarlo
-    //ueransim_thread.join().unwrap();
+    ueransim_thread.join().unwrap();
 }
