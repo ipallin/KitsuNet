@@ -8,7 +8,6 @@ use pnet::packet::{Packet, MutablePacket};
 use pnet::packet::ethernet::EthernetPacket;
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
 use pnet::packet::tcp::{TcpPacket, MutableTcpPacket};
-use pnet::packet::udp::UdpPacket;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
@@ -60,98 +59,83 @@ fn create_socket() -> TcpListener {
 }
 
 fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
-    let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
+    loop {
+        let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
 
-    let mut previous_source_ip: Option<Ipv4Addr> = None;
+        while let Ok(packet) = cap.next_packet() {
+            let payload = packet.data;
 
-    while let Ok(packet) = cap.next_packet() {
-        let payload = packet.data;
+            if payload.len() < EthernetPacket::minimum_packet_size() {
+                println!("Packet too small, skipping.");
+                continue;
+            }
 
-        if payload.len() < EthernetPacket::minimum_packet_size() {
-            println!("Packet too small, skipping.");
-            continue;
-        }
+            if let Some(ethernet_packet) = EthernetPacket::new(payload) {
+                if ethernet_packet.get_ethertype() == pnet::packet::ethernet::EtherTypes::Ipv4 {
+                    if let Some(ipv4_packet) = Ipv4Packet::new(ethernet_packet.payload()) {
+                        if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
+                            // Only process the packet if the destination port is 2404
+                            if tcp_packet.get_destination() == 2404 {
+                                let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
+                                let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
 
-        if let Some(ethernet_packet) = EthernetPacket::new(payload) {
-            if ethernet_packet.get_ethertype() == pnet::packet::ethernet::EtherTypes::Ipv4 {
-                if let Some(ipv4_packet) = Ipv4Packet::new(ethernet_packet.payload()) {
-                    let current_source_ip = ipv4_packet.get_source();
+                                new_ipv4_packet.set_version(4); 
+                                new_ipv4_packet.set_header_length(5);
+                                new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
+                                new_ipv4_packet.set_ttl(64); 
+                                new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
 
-                    if let Some(prev_ip) = previous_source_ip {
-                        if current_source_ip != prev_ip {
-                            // Listen on the socket and skip one PCAP row for each packet received
-                            let mut buffer = [0; 1024];
-                            match socket.read(&mut buffer) {
-                                Ok(_) => {
-                                    println!("Received packet on socket, skipping one PCAP row.");
-                                    continue;
+                                new_ipv4_packet.clone_from(&ipv4_packet);
+
+                                new_ipv4_packet.set_source(src_ip);
+                                new_ipv4_packet.set_destination(dst_ip);  // Now uses client's IP as destination
+                                new_ipv4_packet.set_checksum(0); 
+
+                                // Calculate and set the checksum
+                                let checksum = pnet::util::ipv4_checksum(
+                                    new_ipv4_packet.packet(),
+                                    new_ipv4_packet.packet().len(),
+                                    &[],
+                                    &new_ipv4_packet.get_source(),
+                                    &new_ipv4_packet.get_destination(),
+                                    new_ipv4_packet.get_next_level_protocol(),
+                                );
+                                new_ipv4_packet.set_checksum(checksum);
+
+                                println!("--- IPv4 Layer ---");
+                                println!("Source IP: {:?}", new_ipv4_packet.get_source());
+                                println!("Destination IP: {:?}", new_ipv4_packet.get_destination());
+                                println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
+                                println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
+
+                                if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
+                                    set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
+                                    println!("--- TCP Layer ---");
+                                    println!("Source Port: {:?}", tcp_packet.get_source());
+                                    println!("Destination Port: {:?}", tcp_packet.get_destination());
+                                    println!("Sequence Number: {:?}", tcp_packet.get_sequence());
+                                    println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
+                                    println!("Flags: {:?}", tcp_packet.get_flags());
                                 }
-                                Err(e) => {
-                                    eprintln!("Failed to read from socket: {}", e);
-                                    continue;
+
+                                println!("New IPv4 Packet: {:?}", new_ipv4_packet);
+
+                                // Wait for data from the socket
+                                let mut buffer = [0; 1024];
+                                match socket.read(&mut buffer) {
+                                    Ok(_) => {
+                                        // Send the packet through the TCP socket as a reply
+                                        if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
+                                            eprintln!("Failed to send packet through TCP socket: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to read from socket: {}", e);
+                                    }
                                 }
+                            } else {
+                                println!("Skipping packet with destination port: {:?}", tcp_packet.get_destination());
                             }
-                        }
-                    }
-
-                    previous_source_ip = Some(current_source_ip);
-
-                    if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
-                        // Only process the packet if the destination port is 2404
-                        if tcp_packet.get_destination() == 2404 {
-                            let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
-                            let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
-
-                            new_ipv4_packet.set_version(4); 
-                            new_ipv4_packet.set_header_length(5);
-                            new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
-                            new_ipv4_packet.set_ttl(64); 
-                            new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
-
-                            new_ipv4_packet.clone_from(&ipv4_packet);
-
-                            new_ipv4_packet.set_source(src_ip);
-                            new_ipv4_packet.set_destination(dst_ip);  // Now uses client's IP as destination
-                            new_ipv4_packet.set_checksum(0); 
-
-                            // Calculate and set the checksum
-                            let checksum = pnet::util::ipv4_checksum(
-                                new_ipv4_packet.packet(),
-                                new_ipv4_packet.packet().len(),
-                                &[],
-                                &new_ipv4_packet.get_source(),
-                                &new_ipv4_packet.get_destination(),
-                                new_ipv4_packet.get_next_level_protocol(),
-                            );
-                            new_ipv4_packet.set_checksum(checksum);
-
-                            println!("--- IPv4 Layer ---");
-                            println!("Source IP: {:?}", new_ipv4_packet.get_source());
-                            println!("Destination IP: {:?}", new_ipv4_packet.get_destination());
-                            println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
-                            println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
-
-                            if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
-                                set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
-                                println!("--- TCP Layer ---");
-                                println!("Source Port: {:?}", tcp_packet.get_source());
-                                println!("Destination Port: {:?}", tcp_packet.get_destination());
-                                println!("Sequence Number: {:?}", tcp_packet.get_sequence());
-                                println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
-                                println!("Flags: {:?}", tcp_packet.get_flags());
-                            }
-
-                            println!("New IPv4 Packet: {:?}", new_ipv4_packet);
-
-                            thread::sleep(Duration::from_secs(5));
-
-                            // Send the packet through the TCP socket
-                            if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                                eprintln!("Failed to send packet through TCP socket: {}", e);
-                            }
-                        } else {
-                            println!("Skipping packet with destination port: {:?}", tcp_packet.get_destination());
-                            thread::sleep(Duration::from_secs(10));
                         }
                     }
                 }
