@@ -55,20 +55,39 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
 }
 
 fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
-    let socket = TcpStream::connect((remote_ip, remote_port)).expect("Failed to connect to remote socket");
-    socket
+    loop {
+        match TcpStream::connect((remote_ip, remote_port)) {
+            Ok(socket) => return socket,
+            Err(e) => {
+                eprintln!("Failed to connect to remote socket: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    }
 }
 
 fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
     loop {
-        let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
+        let mut cap = match Capture::from_file(file_path) {
+            Ok(cap) => cap,
+            Err(e) => {
+                eprintln!("Failed to open PCAP file: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            }
+        };
 
         let (mut tx, _rx) = match datalink::channel(interface, Default::default()) {
             Ok(Ethernet(tx, _rx)) => (tx, _rx),
-            Ok(_) => panic!("Unhandled channel type"),
+            Ok(_) => {
+                eprintln!("Unhandled channel type. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            }
             Err(e) => {
-                eprintln!("Failed to create datalink channel: {}. Try running with elevated privileges or setting the CAP_NET_RAW capability.", e);
-                return;
+                eprintln!("Failed to create datalink channel: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+                continue;
             }
         };
 
@@ -97,7 +116,8 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                                         continue;
                                     }
                                     Err(e) => {
-                                        eprintln!("Failed to read from socket: {}", e);
+                                        eprintln!("Failed to read from socket: {}. Retrying...", e);
+                                        thread::sleep(Duration::from_secs(5));
                                         continue;
                                     }
                                 }
@@ -109,7 +129,14 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                         if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
                             if tcp_packet.get_destination() == 2404 {
                                 let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
-                                let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
+                                let mut new_ipv4_packet = match MutableIpv4Packet::new(&mut ipv4_buffer) {
+                                    Some(packet) => packet,
+                                    None => {
+                                        eprintln!("Failed to create mutable IPv4 packet. Retrying...");
+                                        thread::sleep(Duration::from_secs(5));
+                                        continue;
+                                    }
+                                };
 
                                 new_ipv4_packet.set_version(4); 
                                 new_ipv4_packet.set_header_length(5);
@@ -162,15 +189,18 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
                                 println!("New IPv4 Packet: {:?}", new_ipv4_packet);
 
-                                thread::sleep(Duration::from_secs(5));
                                 // Send 
                                 if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
-                                    eprintln!("Failed to send packet: {}", e);
+                                    eprintln!("Failed to send packet: {}. Retrying...", e);
+                                    thread::sleep(Duration::from_secs(5));
+                                    continue;
                                 }
 
                                 // Send the packet through the TCP socket
                                 if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                                    eprintln!("Failed to send packet through TCP socket: {}", e);
+                                    eprintln!("Failed to send packet through TCP socket: {}. Retrying...", e);
+                                    thread::sleep(Duration::from_secs(5));
+                                    continue;
                                 }
                             }
                         }
@@ -195,7 +225,7 @@ fn main() {
     let remote_ip = Ipv4Addr::new(192, 168, 1, 9);
     let remote_port = 2404;
 
-    /* //Comentado por ahora para evitar erroes
+
     let ueransim_thread = thread::spawn(|| {
         loop {
             println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
@@ -203,13 +233,30 @@ fn main() {
             thread::sleep(Duration::from_secs(5));
         }
     });
-    */
+    
     // Empezar antes de ejecutar el otro hilo
     thread::sleep(Duration::from_secs(15));
 
     let interface_name = "ens3";
-    let interface = find_interface(interface_name).expect("Network interface not found");
-    let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
+    let interface = loop {
+        match find_interface(interface_name) {
+            Some(iface) => break iface,
+            None => {
+                eprintln!("Network interface not found. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
+
+    let source_ip = loop {
+        match get_source_ip(&interface) {
+            Some(ip) => break ip,
+            None => {
+                eprintln!("Failed to get source IP. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
 
     let source_ip = match source_ip {
         IpAddr::V4(ipv4) => ipv4,
