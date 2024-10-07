@@ -105,69 +105,73 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
                     previous_source_ip = Some(current_source_ip);
 
-                    let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
-                    let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
+                    if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
+                        if tcp_packet.get_destination() == 2404 {
+                            let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
+                            let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
 
-                    new_ipv4_packet.set_version(4); 
-                    new_ipv4_packet.set_header_length(5);
-                    new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
-                    new_ipv4_packet.set_ttl(64); 
-                    new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
+                            new_ipv4_packet.set_version(4); 
+                            new_ipv4_packet.set_header_length(5);
+                            new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
+                            new_ipv4_packet.set_ttl(64); 
+                            new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
 
-                    new_ipv4_packet.clone_from(&ipv4_packet);
+                            new_ipv4_packet.clone_from(&ipv4_packet);
 
-                    new_ipv4_packet.set_source(src_ip);
-                    new_ipv4_packet.set_destination(dst_ip);
-                    new_ipv4_packet.set_checksum(0); 
+                            new_ipv4_packet.set_source(src_ip);
+                            new_ipv4_packet.set_destination(dst_ip);
+                            new_ipv4_packet.set_checksum(0); 
 
-                    // Calculate and set the checksum
-                    let checksum = pnet::util::ipv4_checksum(
-                        new_ipv4_packet.packet(),
-                        new_ipv4_packet.packet().len(),
-                        &[],
-                        &new_ipv4_packet.get_source(),
-                        &new_ipv4_packet.get_destination(),
-                        new_ipv4_packet.get_next_level_protocol(),
-                    );
-                    new_ipv4_packet.set_checksum(checksum);
+                            // Calculate and set the checksum
+                            let checksum = pnet::util::ipv4_checksum(
+                                new_ipv4_packet.packet(),
+                                new_ipv4_packet.packet().len(),
+                                &[],
+                                &new_ipv4_packet.get_source(),
+                                &new_ipv4_packet.get_destination(),
+                                new_ipv4_packet.get_next_level_protocol(),
+                            );
+                            new_ipv4_packet.set_checksum(checksum);
 
-                    println!("--- IPv4 Layer ---");
-                    println!("Source IP: {:?}", new_ipv4_packet.get_source());
-                    println!("Destination IP: {:?}", new_ipv4_packet.get_destination());
-                    println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
-                    println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
+                            println!("--- IPv4 Layer ---");
+                            println!("Source IP: {:?}", new_ipv4_packet.get_source());
+                            println!("Destination IP: {:?}", new_ipv4_packet.get_destination());
+                            println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
+                            println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
 
-                    if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
-                        set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
-                        println!("--- TCP Layer ---");
-                        println!("Source Port: {:?}", tcp_packet.get_source());
-                        println!("Destination Port: {:?}", tcp_packet.get_destination());
-                        println!("Sequence Number: {:?}", tcp_packet.get_sequence());
-                        println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
-                        println!("Flags: {:?}", tcp_packet.get_flags());
-                    } else if let Some(udp_packet) = UdpPacket::new(new_ipv4_packet.payload()) {
-                        println!("--- UDP Layer ---");
-                        println!("Source Port: {:?}", udp_packet.get_source());
-                        println!("Destination Port: {:?}", udp_packet.get_destination());
-                        println!("Length: {:?}", udp_packet.get_length());
-                        println!("Checksum: {:?}", udp_packet.get_checksum());
-                    }
+                            if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
+                                set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
+                                println!("--- TCP Layer ---");
+                                println!("Source Port: {:?}", tcp_packet.get_source());
+                                println!("Destination Port: {:?}", tcp_packet.get_destination());
+                                println!("Sequence Number: {:?}", tcp_packet.get_sequence());
+                                println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
+                                println!("Flags: {:?}", tcp_packet.get_flags());
+                            } else if let Some(udp_packet) = UdpPacket::new(new_ipv4_packet.payload()) {
+                                println!("--- UDP Layer ---");
+                                println!("Source Port: {:?}", udp_packet.get_source());
+                                println!("Destination Port: {:?}", udp_packet.get_destination());
+                                println!("Length: {:?}", udp_packet.get_length());
+                                println!("Checksum: {:?}", udp_packet.get_checksum());
+                            }
 
-                    println!("IPv4 Packet: {:?}", ipv4_packet);
-                    println!("Ethernet Packet: {:?}", ethernet_packet);
-                    println!("TCP Packet: {:?}", TcpPacket::new(ipv4_packet.payload()).unwrap());
+                            println!("IPv4 Packet: {:?}", ipv4_packet);
+                            println!("Ethernet Packet: {:?}", ethernet_packet);
+                            println!("TCP Packet: {:?}", TcpPacket::new(ipv4_packet.payload()).unwrap());
 
-                    println!("New IPv4 Packet: {:?}", new_ipv4_packet);
+                            println!("New IPv4 Packet: {:?}", new_ipv4_packet);
 
-                    thread::sleep(Duration::from_secs(5));
-                    // Send 
-                    if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
-                        eprintln!("Failed to send packet: {}", e);
-                    }
+                            thread::sleep(Duration::from_secs(5));
+                            // Send 
+                            if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
+                                eprintln!("Failed to send packet: {}", e);
+                            }
 
-                    // Send the packet through the TCP socket
-                    if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                        eprintln!("Failed to send packet through TCP socket: {}", e);
+                            // Send the packet through the TCP socket
+                            if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
+                                eprintln!("Failed to send packet through TCP socket: {}", e);
+                            }
+                        }
                     }
                 }
             }
