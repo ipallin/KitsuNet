@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use std::net::{IpAddr, Ipv4Addr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use std::io::{Read, Write};
 use pcap::Capture;
 use pnet::packet::{Packet, MutablePacket};
@@ -54,9 +54,9 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     None
 }
 
-fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
-    let socket = TcpStream::connect((remote_ip, remote_port)).expect("Failed to connect to remote socket");
-    socket
+fn create_socket() -> TcpListener {
+    let listener = TcpListener::bind(("0.0.0.0", 2404)).expect("Failed to bind to port 2404");
+    listener
 }
 
 fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
@@ -176,29 +176,9 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 }
 
 fn main() {
-    // Esto la verdad que no funciona, hay que hacerlo manual por ahora
-   /*Command::new("sudo")
-        .arg("setcap")
-        .arg("cap_net_raw=eip")
-        .arg("target/debug/trafik")
-        .status()
-        .expect("Failed to grant");
-    */
     let pcap_file = "industroyer2.pcap";
     let destination_ip = Ipv4Addr::new(192, 168, 1, 9);
-    let remote_ip = Ipv4Addr::new(192, 168, 1, 9);
-    let remote_port = 2404;
 
-    /* //Comentado por ahora para evitar erroes
-    let ueransim_thread = thread::spawn(|| {
-        loop {
-            println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
-            execute_command();
-            thread::sleep(Duration::from_secs(5));
-        }
-    });
-    */
-    // Empezar antes de ejecutar el otro hilo
     thread::sleep(Duration::from_secs(15));
 
     let interface_name = "ens3";
@@ -211,11 +191,19 @@ fn main() {
     };
 
     // Create the socket
-    let socket = create_socket(remote_ip, remote_port);
-    println!("Socket created and connected to {}:{}", remote_ip, remote_port);
+    let listener = create_socket();
+    println!("Server listening on port 2404");
 
-    process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
-
-    // Esto hay que mejorarlo
-    //ueransim_thread.join().unwrap();
+    for stream in listener.incoming() {
+        match stream {
+            Ok(socket) => {
+                println!("New connection: {}", socket.peer_addr().unwrap());
+                // Handle the connection
+                process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
+            }
+            Err(e) => {
+                println!("Connection failed: {}", e);
+            }
+        }
+    }
 }
