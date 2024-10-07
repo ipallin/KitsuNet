@@ -1,6 +1,6 @@
 use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::net::{IpAddr, Ipv4Addr, TcpStream};
 use std::io::{Read, Write};
 use pcap::Capture;
@@ -181,9 +181,14 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                             } else {
                                 // Listen on the socket and skip one PCAP row for each packet received
                                 let mut buffer = [0; 1024];
+                                socket.set_read_timeout(Some(Duration::from_secs(10))).expect("Failed to set read timeout");
                                 match socket.read(&mut buffer) {
                                     Ok(_) => {
                                         println!("Received packet on socket, skipping one PCAP row.");
+                                        continue;
+                                    }
+                                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                        println!("Timeout reached, skipping to the next packet.");
                                         continue;
                                     }
                                     Err(e) => {
