@@ -2,6 +2,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use std::net::{IpAddr, Ipv4Addr, TcpStream};
+use std::io::Write;
 use pcap::Capture;
 use pnet::packet::{Packet, MutablePacket};
 use pnet::packet::ethernet::EthernetPacket;
@@ -53,13 +54,12 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     None
 }
 
-fn create_socket(interface: &NetworkInterface) -> TcpStream {
-    let source_ip = get_source_ip(interface).expect("Failed to get source IP");
-    let socket = TcpStream::connect((source_ip, 0)).expect("Failed to bind socket");
+fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
+    let socket = TcpStream::connect((remote_ip, remote_port)).expect("Failed to connect to remote socket");
     socket
 }
 
-fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface) {
+fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
     let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
 
     let (mut tx, _rx) = match datalink::channel(interface, Default::default()) {
@@ -146,6 +146,11 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                     if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
                         eprintln!("Failed to send packet: {}", e);
                     }
+
+                    // Send the packet through the TCP socket
+                    if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
+                        eprintln!("Failed to send packet through TCP socket: {}", e);
+                    }
                 }
             }
         }
@@ -162,8 +167,11 @@ fn main() {
         .expect("Failed to grant");
     */
     let pcap_file = "industroyer2.pcap";
-    let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
+    let destination_ip = Ipv4Addr::new(192, 168, 1, 9);
+    let remote_ip = Ipv4Addr::new(192, 168, 1, 9);
+    let remote_port = 2404;
 
+    /* //Comentado por ahora para evitar erroes
     let ueransim_thread = thread::spawn(|| {
         loop {
             println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
@@ -171,11 +179,11 @@ fn main() {
             thread::sleep(Duration::from_secs(5));
         }
     });
-
+    */
     // Empezar antes de ejecutar el otro hilo
     thread::sleep(Duration::from_secs(15));
 
-    let interface_name = "uesimtun0";
+    let interface_name = "ens3";
     let interface = find_interface(interface_name).expect("Network interface not found");
     let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
 
@@ -185,11 +193,11 @@ fn main() {
     };
 
     // Create the socket
-    let socket = create_socket(&interface);
-    println!("Socket created and bound to {}", socket.local_addr().unwrap());
+    let socket = create_socket(remote_ip, remote_port);
+    println!("Socket created and connected to {}:{}", remote_ip, remote_port);
 
-    process_pcap(pcap_file, source_ip, destination_ip, &interface);
+    process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
 
     // Esto hay que mejorarlo
-    ueransim_thread.join().unwrap();
+    //ueransim_thread.join().unwrap();
 }
