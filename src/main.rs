@@ -216,8 +216,8 @@ fn main() {
         .expect("Failed to grant");
     */
     let pcap_file = "industroyer2.pcap";
-    let destination_ip = Ipv4Addr::new(192, 168, 12, 4);
-    let remote_ip = Ipv4Addr::new(192, 168, 12, 4);
+    let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
+    let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_port = 2404;
 
     let ueransim_thread = thread::spawn(|| {
