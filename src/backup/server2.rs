@@ -58,7 +58,7 @@ fn create_socket() -> TcpListener {
     listener
 }
 
-fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_port: u16, interface: &NetworkInterface, mut socket: TcpStream) {
+fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
     loop {
         let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
 
@@ -76,7 +76,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
                         if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
                             // Only process the packet if the source port is 2404
                             if tcp_packet.get_source() == 2404 {
-                                let total_length = Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len();
+                                let total_length = Ipv4Packet::minimum_packet_size() + ipv4_packet.packet().len();
                                 
                                 // Check if the packet size is larger than the buffer
                                 if total_length > 65535 {
@@ -108,7 +108,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
                                 new_ipv4_packet.clone_from(&ipv4_packet);
 
                                 new_ipv4_packet.set_source(src_ip);
-                                new_ipv4_packet.set_destination(client_ip);  // Use the client's IP as destination
+                                new_ipv4_packet.set_destination(dst_ip);  // Now uses client's IP as destination
                                 new_ipv4_packet.set_checksum(0); 
 
                                 // Calculate and set the checksum
@@ -128,16 +128,14 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
                                 println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
                                 println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
 
-                                if let Some(mut new_tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
-                                    new_tcp_packet.clone_from(&tcp_packet);
-                                    new_tcp_packet.set_destination(client_port);  // Use the client's port as destination
-                                    set_tcp_checksum(&ipv4_packet, &mut new_tcp_packet);
+                                if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
+                                    set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
                                     println!("--- TCP Layer ---");
-                                    println!("Source Port: {:?}", new_tcp_packet.get_source());
-                                    println!("Destination Port: {:?}", new_tcp_packet.get_destination());
-                                    println!("Sequence Number: {:?}", new_tcp_packet.get_sequence());
-                                    println!("Acknowledgment Number: {:?}", new_tcp_packet.get_acknowledgement());
-                                    println!("Flags: {:?}", new_tcp_packet.get_flags());
+                                    println!("Source Port: {:?}", tcp_packet.get_source());
+                                    println!("Destination Port: {:?}", tcp_packet.get_destination());
+                                    println!("Sequence Number: {:?}", tcp_packet.get_sequence());
+                                    println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
+                                    println!("Flags: {:?}", tcp_packet.get_flags());
                                 }
 
                                 println!("New IPv4 Packet: {:?}", new_ipv4_packet);
@@ -163,9 +161,9 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
 fn main() {
     let pcap_file = "industroyer2.pcap";
 
-    //thread::sleep(Duration::from_secs(15));
+    thread::sleep(Duration::from_secs(15));
 
-    let interface_name = "ens4";
+    let interface_name = "ens3";
     let interface = find_interface(interface_name).expect("Network interface not found");
     let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
 
@@ -181,25 +179,21 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(socket) => {
-                // Extract the client's IP address and port from the socket
-                let client_addr = match socket.peer_addr() {
-                    Ok(addr) => addr,
+                // Extract the client's IP address from the socket
+                let client_ip = match socket.peer_addr() {
+                    Ok(addr) => match addr.ip() {
+                        IpAddr::V4(ipv4) => ipv4,
+                        _ => panic!("Expected an IPv4 address from the client"),
+                    },
                     Err(e) => {
                         println!("Failed to get client address: {}", e);
                         continue;
                     }
                 };
 
-                let client_ip = match client_addr.ip() {
-                    IpAddr::V4(ipv4) => ipv4,
-                    _ => panic!("Expected an IPv4 address from the client"),
-                };
-
-                let client_port = client_addr.port();
-
-                println!("New connection from client IP: {}, Port: {}", client_ip, client_port);
-                // Handle the connection and use client's IP and port as the destination
-                process_pcap(pcap_file, source_ip, client_ip, client_port, &interface, socket);
+                println!("New connection from client IP: {}", client_ip);
+                // Handle the connection and use client's IP as the destination IP
+                process_pcap(pcap_file, source_ip, client_ip, &interface, socket);
             }
             Err(e) => {
                 println!("Connection failed: {}", e);
