@@ -1,6 +1,6 @@
 use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use std::io::{Read, Write};
 use pcap::Capture;
@@ -19,7 +19,7 @@ fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket)
         &[],
         &ipv4_packet.get_source(),
         &ipv4_packet.get_destination(),
-        ipv4_packet.get_next_level_protocol(),
+        pnet::packet::ip::IpNextHeaderProtocols::Tcp,
     );
     tcp_packet.set_checksum(checksum);
 }
@@ -74,16 +74,36 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                 if ethernet_packet.get_ethertype() == pnet::packet::ethernet::EtherTypes::Ipv4 {
                     if let Some(ipv4_packet) = Ipv4Packet::new(ethernet_packet.payload()) {
                         if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
-                            // Only process the packet if the destination port is 2404
-                            if tcp_packet.get_destination() == 2404 {
-                                let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
-                                let mut new_ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer).unwrap();
+                            // Only process the packet if the source port is 2404
+                            if tcp_packet.get_source() == 2404 {
+                                let total_length = Ipv4Packet::minimum_packet_size() + ipv4_packet.packet().len();
+                                
+                                // Check if the packet size is larger than the buffer
+                                if total_length > 65535 {
+                                    println!("Packet too large, skipping.");
+                                    continue;
+                                }
+
+                                let mut ipv4_buffer = vec![0u8; total_length];
+                                let mut new_ipv4_packet = match MutableIpv4Packet::new(&mut ipv4_buffer) {
+                                    Some(packet) => packet,
+                                    None => {
+                                        println!("Failed to create new IPv4 packet, skipping.");
+                                        continue;
+                                    }
+                                };
 
                                 new_ipv4_packet.set_version(4); 
                                 new_ipv4_packet.set_header_length(5);
-                                new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
+                                new_ipv4_packet.set_total_length(total_length as u16);
                                 new_ipv4_packet.set_ttl(64); 
                                 new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
+
+                                // Ensure the new packet buffer is large enough before cloning
+                                if new_ipv4_packet.packet().len() < ipv4_packet.packet().len() {
+                                    println!("New packet buffer too small, skipping.");
+                                    continue;
+                                }
 
                                 new_ipv4_packet.clone_from(&ipv4_packet);
 
@@ -120,21 +140,15 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
                                 println!("New IPv4 Packet: {:?}", new_ipv4_packet);
 
-                                // Wait for data from the socket
-                                let mut buffer = [0; 1024];
-                                match socket.read(&mut buffer) {
-                                    Ok(_) => {
-                                        // Send the packet through the TCP socket as a reply
-                                        if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                                            eprintln!("Failed to send packet through TCP socket: {}", e);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to read from socket: {}", e);
-                                    }
+                                // Send the packet through the TCP socket as a reply
+                                if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
+                                    eprintln!("Failed to send packet through TCP socket: {}", e);
                                 }
+
+                                // Wait for 1 second before sending the next packet
+                                thread::sleep(Duration::from_secs(1));
                             } else {
-                                println!("Skipping packet with destination port: {:?}", tcp_packet.get_destination());
+                                println!("Skipping packet with source port: {:?}", tcp_packet.get_source());
                             }
                         }
                     }
