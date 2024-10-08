@@ -24,16 +24,6 @@ fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket)
     tcp_packet.set_checksum(checksum);
 }
 
-fn execute_command() {
-    println!("Executing 'build/nr-ue' command...");
-    Command::new("sudo")
-        .arg("ueransim/build/nr-ue")
-        .arg("-c")
-        .arg("ueransim/config/open5gs-ue.yaml")
-        .status()
-        .expect("Failed to execute 'build/nr-ue'");
-}
-
 fn find_interface(name: &str) -> Option<NetworkInterface> {
     let interfaces = datalink::interfaces();
     for iface in interfaces {
