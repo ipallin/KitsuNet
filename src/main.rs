@@ -1,16 +1,18 @@
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, TcpStream, SocketAddr, UdpSocket};
 use std::io::{Read, Write};
 use pcap::Capture;
 use pnet::packet::{Packet, MutablePacket};
 use pnet::packet::ethernet::EthernetPacket;
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
 use pnet::packet::tcp::{TcpPacket, MutableTcpPacket};
+use pnet::packet::udp::UdpPacket;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
+use std::net::TcpListener;
 
 fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket) {
     let checksum = pnet::util::ipv4_checksum(
@@ -19,7 +21,7 @@ fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket)
         &[],
         &ipv4_packet.get_source(),
         &ipv4_packet.get_destination(),
-        pnet::packet::ip::IpNextHeaderProtocols::Tcp,
+        ipv4_packet.get_next_level_protocol(),
     );
     tcp_packet.set_checksum(checksum);
 }
@@ -48,7 +50,7 @@ fn create_socket() -> TcpListener {
     listener
 }
 
-fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_port: u16, interface: &NetworkInterface, mut socket: TcpStream) {
+fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_nat_ip: Ipv4Addr, client_port: u16, interface: &NetworkInterface, mut socket: TcpStream) {
     loop {
         let mut cap = Capture::from_file(file_path).expect("Failed to open PCAP file");
 
@@ -98,7 +100,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
                                 new_ipv4_packet.clone_from(&ipv4_packet);
 
                                 new_ipv4_packet.set_source(src_ip);
-                                new_ipv4_packet.set_destination(client_ip);  // Use the client's IP as destination
+                                new_ipv4_packet.set_destination(client_nat_ip);  // Use the client's NAT IP as destination
                                 new_ipv4_packet.set_checksum(0); 
 
                                 // Calculate and set the checksum
@@ -152,8 +154,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_ip: Ipv4Addr, client_p
 
 fn main() {
     let pcap_file = "industroyer2.pcap";
-
-    //thread::sleep(Duration::from_secs(15));
 
     let interface_name = "ens4";
     let interface = find_interface(interface_name).expect("Network interface not found");
