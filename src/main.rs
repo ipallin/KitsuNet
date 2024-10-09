@@ -100,7 +100,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, client_nat_ip: Ipv4Addr, clie
                                 new_ipv4_packet.clone_from(&ipv4_packet);
 
                                 new_ipv4_packet.set_source(src_ip);
-                                new_ipv4_packet.set_destination(client_nat_ip);  // Use the client's NAT IP as destination
+                                new_ipv4_packet.set_destination(client_nat_ip);  // Use the client's NAT IP as the new destination IP
                                 new_ipv4_packet.set_checksum(0); 
 
                                 // Calculate and set the checksum
@@ -179,7 +179,7 @@ fn main() {
                         continue;
                     }
                 };
-
+                
                 let client_ip = match client_addr.ip() {
                     IpAddr::V4(ipv4) => ipv4,
                     _ => panic!("Expected an IPv4 address from the client"),
