@@ -1,0 +1,9 @@
+[client]
+pcap_file = "industroyer2.pcap"
+remote_ip = "192.168.10.3"
+remote_port = 2404
+local_iface = "uesimtun0"
+
+[server]
+port = 2404
+debug = true

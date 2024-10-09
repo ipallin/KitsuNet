@@ -15,6 +15,30 @@ use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener;
+use std::fs;
+use serde::Deserialize;
+use toml;
+
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    client: ClientConfig,
+    server: ServerConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientConfig {
+    pcap_file: String,
+    remote_ip: Ipv4Addr,
+    remote_port: u16,
+    local_iface: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerConfig {
+    port: u16,
+    debug: bool,
+}
 
 fn set_ipv4_checksum(packet: &mut MutableIpv4Packet) {
     packet.set_checksum(0);
@@ -222,13 +246,14 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} --client | --server", args[0]);
+        eprintln!("Usage: {} --client | --5gclient | --server", args[0]);
         std::process::exit(1);
     }
 
     match args[1].as_str() {
         "--client" => run_client(),
         "--server" => run_server(),
+        "--5gclient" => run_5gclient(),
         _ => {
             eprintln!("Invalid argument: {}. Use --client or --server.", args[1]);
             std::process::exit(1);
@@ -236,13 +261,85 @@ fn main() {
     }
 }
 
-
 fn run_client() {
     println!("Running in client mode");
+    /* // Variables hardcodeadas (solo para debbuging)
     let pcap_file = "industroyer2.pcap";
     let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_port = 2404;
     let local_iface = "uesimtun0";
+    */
+    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
+
+    let client_config = config.client;
+
+    let pcap_file = client_config.pcap_file;
+    let remote_ip = client_config.remote_ip;
+    let remote_port = client_config.remote_port;
+    let local_iface = client_config.local_iface;
+
+    //let interface_name = "uesimtun0";
+    let interface = loop {
+        match find_interface(&local_iface) {
+            Some(iface) => break iface,
+            None => {
+                eprintln!("Network interface not found. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
+
+    let source_ip = loop {
+        match get_source_ip(&interface) {
+            Some(ip) => break ip,
+            None => {
+                eprintln!("Failed to get source IP. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
+
+    let source_ip = match source_ip {
+        IpAddr::V4(ipv4) => ipv4,
+        _ => panic!("Expected an IPv4 address"),
+    };
+
+    // Crea el socket TCP
+    let socket = loop {
+        match create_bound_socket(&remote_ip.to_string(), remote_port, &local_iface) {
+            Ok(socket) => break socket,
+            Err(e) => {
+                eprintln!("Failed to connect to remote socket: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
+    let local_addr = socket.local_addr().expect("Failed to get local address");
+    println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
+
+    // Empieza a mandar tráfico (quitar para debbuging)
+    process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
+}
+
+
+fn run_5gclient() {
+    println!("Running in client mode");
+    /* // Variables hardcodeadas (solo para debbuging)
+    let pcap_file = "industroyer2.pcap";
+    let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
+    let remote_port = 2404;
+    let local_iface = "uesimtun0";
+    */
+    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
+
+    let client_config = config.client;
+
+    let pcap_file = client_config.pcap_file;
+    let remote_ip = client_config.remote_ip;
+    let remote_port = client_config.remote_port;
+    let local_iface = client_config.local_iface;
 
     let ueransim_thread = thread::spawn(|| {
         loop {
@@ -283,7 +380,7 @@ fn run_client() {
 
     // Crea el socket TCP
     let socket = loop {
-        match create_bound_socket(&remote_ip.to_string(), remote_port, local_iface) {
+        match create_bound_socket(&remote_ip.to_string(), remote_port, &local_iface) {
             Ok(socket) => break socket,
             Err(e) => {
                 eprintln!("Failed to connect to remote socket: {}. Retrying...", e);
@@ -295,11 +392,12 @@ fn run_client() {
     println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
 
     // Empieza a mandar tráfico (quitar para debbuging)
-    process_pcap(pcap_file, source_ip, remote_ip, &interface, socket);
+    process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
 
     // Esto hay que mejorarlo
     ueransim_thread.join().unwrap();
 }
+
 
 
 
