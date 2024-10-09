@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::net::{IpAddr, Ipv4Addr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, TcpStream, SocketAddr, UdpSocket};
 use std::io::{Read, Write};
 use pcap::Capture;
 use pnet::packet::{Packet, MutablePacket};
@@ -54,8 +54,9 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     None
 }
 
-fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
+fn create_socket(interface: &NetworkInterface, remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
     loop {
+        let local_addr = SocketAddr::new(interface.ips[0].ip(), 0);
         match TcpStream::connect((remote_ip, remote_port)) {
             Ok(socket) => return socket,
             Err(e) => {
@@ -207,14 +208,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 }
 
 fn main() {
-    // Esto la verdad que no funciona, hay que hacerlo manual por ahora
-   /*Command::new("sudo")
-        .arg("setcap")
-        .arg("cap_net_raw=eip")
-        .arg("target/debug/trafik")
-        .status()
-        .expect("Failed to grant");
-    */
     let pcap_file = "industroyer2.pcap";
     let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
@@ -257,8 +250,8 @@ fn main() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    // Create the socket
-    let socket = create_socket(remote_ip, remote_port);
+    // Create the TCP socket
+    let socket = create_socket(&interface, remote_ip, remote_port);
     println!("Socket created and connected to {}:{}", remote_ip, remote_port);
 
     process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);

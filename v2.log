@@ -1,0 +1,98 @@
+Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...
+Executing 'build/nr-ue' command...
+UERANSIM v3.2.6
+[2024-10-08 15:06:13.701] [nas] [info] UE switches to state [MM-DEREGISTERED/PLMN-SEARCH]
+[2024-10-08 15:06:13.707] [rrc] [debug] New signal detected for cell[1], total [1] cells in coverage
+[2024-10-08 15:06:15.903] [nas] [error] PLMN selection failure, no cells in coverage
+[2024-10-08 15:06:18.105] [nas] [error] PLMN selection failure, no cells in coverage
+[2024-10-08 15:06:18.703] [rrc] [warning] Acceptable cell selection failed in [1] cells. [1] no SI, [0] reserved, [0] barred, ftai [0]
+[2024-10-08 15:06:18.703] [rrc] [error] Cell selection failure, no suitable or acceptable cell found
+[2024-10-08 15:06:19.206] [nas] [info] UE switches to state [MM-DEREGISTERED/NO-CELL-AVAILABLE]
+[2024-10-08 15:06:23.634] [nas] [info] Selected plmn[001/01]
+[2024-10-08 15:06:23.635] [rrc] [info] Selected cell plmn[001/01] tac[1] category[SUITABLE]
+[2024-10-08 15:06:23.635] [nas] [info] UE switches to state [MM-DEREGISTERED/PS]
+[2024-10-08 15:06:23.635] [nas] [info] UE switches to state [MM-DEREGISTERED/NORMAL-SERVICE]
+[2024-10-08 15:06:23.635] [nas] [debug] Initial registration required due to [MM-DEREG-NORMAL-SERVICE]
+[2024-10-08 15:06:23.635] [nas] [debug] UAC access attempt is allowed for identity[0], category[MO_sig]
+[2024-10-08 15:06:23.635] [nas] [debug] Sending Initial Registration
+[2024-10-08 15:06:23.635] [nas] [info] UE switches to state [MM-REGISTER-INITIATED]
+[2024-10-08 15:06:23.635] [rrc] [debug] Sending RRC Setup Request
+[2024-10-08 15:06:23.637] [rrc] [info] RRC connection established
+[2024-10-08 15:06:23.637] [rrc] [info] UE switches to state [RRC-CONNECTED]
+[2024-10-08 15:06:23.637] [nas] [info] UE switches to state [CM-CONNECTED]
+[2024-10-08 15:06:23.649] [nas] [debug] Authentication Request received
+[2024-10-08 15:06:23.655] [nas] [debug] Security Mode Command received
+[2024-10-08 15:06:23.655] [nas] [debug] Selected integrity[2] ciphering[0]
+[2024-10-08 15:06:23.665] [nas] [debug] Registration accept received
+[2024-10-08 15:06:23.665] [nas] [info] UE switches to state [MM-REGISTERED/NORMAL-SERVICE]
+[2024-10-08 15:06:23.665] [nas] [debug] Sending Registration Complete
+[2024-10-08 15:06:23.665] [nas] [info] Initial Registration is successful
+[2024-10-08 15:06:23.665] [nas] [debug] Sending PDU Session Establishment Request
+[2024-10-08 15:06:23.665] [nas] [debug] UAC access attempt is allowed for identity[0], category[MO_sig]
+[2024-10-08 15:06:23.868] [nas] [debug] Configuration Update Command received
+[2024-10-08 15:06:23.882] [nas] [debug] PDU Session Establishment Accept received
+[2024-10-08 15:06:23.882] [nas] [info] PDU Session establishment is successful PSI[1]
+[2024-10-08 15:06:23.899] [app] [info] Connection setup for PDU session[1] is successful, TUN interface[uesimtun0, 10.46.0.156] is up.
+Socket created and connected to 192.168.10.3:2404
+--- IPv4 Layer ---
+Source IP: 10.46.0.156
+Destination IP: 192.168.10.3
+Protocol: IpNextHeaderProtocol(6)
+Checksum: 1738
+--- TCP Layer ---
+Source Port: 49672
+Destination Port: 2404
+Sequence Number: 3266935399
+Acknowledgment Number: 0
+Flags: 2
+IPv4 Packet: Ipv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 52, identification : 38483, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 0, source : 10.9.9.9, destination : 10.1.1.1, options : [],  }
+Ethernet Packet: EthernetPacket { destination : 00:0c:29:77:f9:89, source : 00:0c:29:ea:42:d0, ethertype : EtherType(2048),  }
+TCP Packet: TcpPacket { source : 49672, destination : 2404, sequence : 3266935399, acknowledgement : 0, data_offset : 8, reserved : 0, flags : 2, window : 64240, checksum : 7738, urgent_ptr : 0, options : [TcpOption { number: TcpOptionNumber(2), length: [4], data: [5, 180] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(3), length: [3], data: [8] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(4), length: [2], data: [] }],  }
+New IPv4 Packet: MutableIpv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 52, identification : 38483, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 1738, source : 10.46.0.156, destination : 192.168.10.3, options : [],  }
+Received packet on socket, skipping one PCAP row.
+--- IPv4 Layer ---
+Source IP: 10.46.0.156
+Destination IP: 192.168.10.3
+Protocol: IpNextHeaderProtocol(6)
+Checksum: 53486
+--- TCP Layer ---
+Source Port: 49672
+Destination Port: 2404
+Sequence Number: 3266935400
+Acknowledgment Number: 2315241362
+Flags: 16
+IPv4 Packet: Ipv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 40, identification : 38484, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 0, source : 10.9.9.9, destination : 10.1.1.1, options : [],  }
+Ethernet Packet: EthernetPacket { destination : 00:0c:29:77:f9:89, source : 00:0c:29:ea:42:d0, ethertype : EtherType(2048),  }
+TCP Packet: TcpPacket { source : 49672, destination : 2404, sequence : 3266935400, acknowledgement : 2315241362, data_offset : 5, reserved : 0, flags : 16, window : 8212, checksum : 7726, urgent_ptr : 0, options : [],  }
+New IPv4 Packet: MutableIpv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 40, identification : 38484, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 53486, source : 10.46.0.156, destination : 192.168.10.3, options : [],  }
+--- IPv4 Layer ---
+Source IP: 10.46.0.156
+Destination IP: 192.168.10.3
+Protocol: IpNextHeaderProtocol(6)
+Checksum: 9679
+--- TCP Layer ---
+Source Port: 49672
+Destination Port: 2404
+Sequence Number: 3266935400
+Acknowledgment Number: 2315241362
+Flags: 24
+IPv4 Packet: Ipv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 46, identification : 38485, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 0, source : 10.9.9.9, destination : 10.1.1.1, options : [],  }
+Ethernet Packet: EthernetPacket { destination : 00:0c:29:77:f9:89, source : 00:0c:29:ea:42:d0, ethertype : EtherType(2048),  }
+TCP Packet: TcpPacket { source : 49672, destination : 2404, sequence : 3266935400, acknowledgement : 2315241362, data_offset : 5, reserved : 0, flags : 24, window : 8212, checksum : 7732, urgent_ptr : 0, options : [],  }
+New IPv4 Packet: MutableIpv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 46, identification : 38485, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 9679, source : 10.46.0.156, destination : 192.168.10.3, options : [],  }
+Received packet on socket, skipping one PCAP row.
+--- IPv4 Layer ---
+Source IP: 10.46.0.156
+Destination IP: 192.168.10.3
+Protocol: IpNextHeaderProtocol(6)
+Checksum: 17160
+--- TCP Layer ---
+Source Port: 49673
+Destination Port: 2404
+Sequence Number: 2704343870
+Acknowledgment Number: 0
+Flags: 2
+IPv4 Packet: Ipv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 52, identification : 62148, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 0, source : 10.9.9.9, destination : 10.1.1.2, options : [],  }
+Ethernet Packet: EthernetPacket { destination : 00:0c:29:e0:bf:ad, source : 00:0c:29:ea:42:d0, ethertype : EtherType(2048),  }
+TCP Packet: TcpPacket { source : 49673, destination : 2404, sequence : 2704343870, acknowledgement : 0, data_offset : 8, reserved : 0, flags : 2, window : 64240, checksum : 7739, urgent_ptr : 0, options : [TcpOption { number: TcpOptionNumber(2), length: [4], data: [5, 180] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(3), length: [3], data: [8] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(1), length: [], data: [] }, TcpOption { number: TcpOptionNumber(4), length: [2], data: [] }],  }
+New IPv4 Packet: MutableIpv4Packet { version : 4, header_length : 5, dscp : 0, ecn : 0, total_length : 52, identification : 62148, flags : 2, fragment_offset : 0, ttl : 128, next_level_protocol : IpNextHeaderProtocol(6), checksum : 17160, source : 10.46.0.156, destination : 192.168.10.3, options : [],  }
