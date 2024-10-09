@@ -36,8 +36,8 @@ struct ClientConfig {
 
 #[derive(Debug, Deserialize)]
 struct ServerConfig {
-    port: u16,
-    debug: bool,
+    pcap_file: String,
+    local_iface: String,
 }
 
 fn set_ipv4_checksum(packet: &mut MutableIpv4Packet) {
@@ -404,10 +404,16 @@ fn run_5gclient() {
 
 fn run_server() {
     println!("Running in server mode");
-    let pcap_file = "industroyer2.pcap";
+    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
 
-    let interface_name = "ens4";
-    let interface = find_interface(interface_name).expect("Network interface not found");
+    let server_config = config.server;
+
+    let pcap_file = server_config.pcap_file;
+    let local_iface = server_config.local_iface;
+    //let pcap_file = "industroyer2.pcap";
+    //let interface_name = "ens4";
+    let interface = find_interface(&local_iface).expect("Network interface not found");
     let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
 
     let source_ip = match source_ip {
@@ -440,7 +446,7 @@ fn run_server() {
 
                 println!("New connection from client IP: {}, Port: {}", client_ip, client_port);
                 // Handle the connection and use client's IP and port as the destination
-                process_pcap(pcap_file, source_ip, client_ip, &interface, socket);
+                process_pcap(&pcap_file, source_ip, client_ip, &interface, socket);
             }
             Err(e) => {
                 println!("Connection failed: {}", e);

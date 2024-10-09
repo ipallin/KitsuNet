@@ -5,5 +5,5 @@ remote_port = 2404
 local_iface = "uesimtun0"
 
 [server]
-port = 2404
-debug = true
+pcap_file = "industroyer2.pcap"
+local_iface = "uesimtun0"
