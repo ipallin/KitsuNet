@@ -51,6 +51,7 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     None
 }
 
+/* // Antigua función de crear socket (Deprecated)
 fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
     loop {
         match TcpStream::connect((remote_ip, remote_port)) {
@@ -62,21 +63,18 @@ fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
         }
     }
 }
+*/
 
 fn create_bound_socket(remote_ip: &str, remote_port: u16, local_iface: &str) -> std::io::Result<TcpStream> {
     let remote_addr = format!("{}:{}", remote_ip, remote_port);
     let remote_socket_addr: SocketAddr = remote_addr.parse().unwrap();
 
-    // Create a new socket
+    // Crea socket
     let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
-
-    // Bind the socket to the specific local interface
     socket.bind_device(Some(local_iface.as_bytes()))?;
-
-    // Connect the socket to the remote address
     socket.connect(&remote_socket_addr.into())?;
 
-    // Convert the `socket2::Socket` into a standard `TcpStream`
+    // Convierte el socket en un TcpStream
     let stream: TcpStream = socket.into();
     Ok(stream)
 }
@@ -217,7 +215,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
 fn main() {
     let pcap_file = "industroyer2.pcap";
-    let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_port = 2404;
     let local_iface = "uesimtun0";
@@ -259,10 +256,7 @@ fn main() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    // Define the local interface name
-    
-
-    // Create the TCP socket and establish a connection
+    // Crea el socket TCP
     let socket = loop {
         match create_bound_socket(&remote_ip.to_string(), remote_port, local_iface) {
             Ok(socket) => break socket,
@@ -275,7 +269,8 @@ fn main() {
     let local_addr = socket.local_addr().expect("Failed to get local address");
     println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
 
-    process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
+    // Empieza a mandar tráfico (quitar para debbuging)
+    process_pcap(pcap_file, source_ip, remote_ip, &interface, socket);
 
     // Esto hay que mejorarlo
     ueransim_thread.join().unwrap();
