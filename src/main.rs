@@ -14,15 +14,25 @@ use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
 
 fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket) {
-    let checksum = pnet::util::ipv4_checksum(
-        tcp_packet.packet(),
-        tcp_packet.packet().len(),
-        &[],
-        &ipv4_packet.get_source(),
-        &ipv4_packet.get_destination(),
-        ipv4_packet.get_next_level_protocol(),
-    );
+    let mut pseudo_header = vec![];
+    pseudo_header.extend_from_slice(&ipv4_packet.get_source().octets());
+    pseudo_header.extend_from_slice(&ipv4_packet.get_destination().octets());
+    pseudo_header.push(0);
+    pseudo_header.push(ipv4_packet.get_next_level_protocol().0);
+    pseudo_header.extend_from_slice(&(tcp_packet.packet().len() as u16).to_be_bytes());
+
+    let mut checksum_data = vec![];
+    checksum_data.extend_from_slice(&pseudo_header);
+    checksum_data.extend_from_slice(tcp_packet.packet());
+
+    let checksum = checksum(&checksum_data, 0);
     tcp_packet.set_checksum(checksum);
+}
+
+fn set_ipv4_checksum(ipv4_packet: &mut MutableIpv4Packet) {
+    ipv4_packet.set_checksum(0);
+    let checksum = checksum(ipv4_packet.packet(), 5);
+    ipv4_packet.set_checksum(checksum);
 }
 
 fn execute_command() {
@@ -54,9 +64,8 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     None
 }
 
-fn create_socket(interface: &NetworkInterface, remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
+fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
     loop {
-        let local_addr = SocketAddr::new(interface.ips[0].ip(), 0);
         match TcpStream::connect((remote_ip, remote_port)) {
             Ok(socket) => return socket,
             Err(e) => {
@@ -125,18 +134,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
                                 new_ipv4_packet.set_source(src_ip);
                                 new_ipv4_packet.set_destination(dst_ip);
-                                new_ipv4_packet.set_checksum(0); 
-
-                                // Calculate and set the checksum
-                                let checksum = pnet::util::ipv4_checksum(
-                                    new_ipv4_packet.packet(),
-                                    new_ipv4_packet.packet().len(),
-                                    &[],
-                                    &new_ipv4_packet.get_source(),
-                                    &new_ipv4_packet.get_destination(),
-                                    new_ipv4_packet.get_next_level_protocol(),
-                                );
-                                new_ipv4_packet.set_checksum(checksum);
+                                set_ipv4_checksum(&mut new_ipv4_packet); // Calculate and set IPv4 checksum
 
                                 println!("--- IPv4 Layer ---");
                                 println!("Source IP: {:?}", new_ipv4_packet.get_source());
@@ -145,7 +143,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                                 println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
 
                                 if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
-                                    set_tcp_checksum(&ipv4_packet, &mut tcp_packet);
+                                    set_tcp_checksum(&ipv4_packet, &mut tcp_packet); // Calculate and set TCP checksum
                                     println!("--- TCP Layer ---");
                                     println!("Source Port: {:?}", tcp_packet.get_source());
                                     println!("Destination Port: {:?}", tcp_packet.get_destination());
@@ -179,6 +177,10 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                                     thread::sleep(Duration::from_secs(5));
                                     continue;
                                 }
+
+                                // Print the entire sent packet data in hexadecimal format
+                                let sent_packet_hex: String = new_ipv4_packet.packet().iter().map(|byte| format!("{:02x}", byte)).collect();
+                                println!("Sent Packet Data: {}", sent_packet_hex);
                             } else {
                                 // Listen on the socket and skip one PCAP row for each packet received
                                 let mut buffer = [0; 1024];
@@ -206,6 +208,7 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
         }
     }
 }
+
 
 fn main() {
     let pcap_file = "industroyer2.pcap";
@@ -250,8 +253,8 @@ fn main() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    // Create the TCP socket
-    let socket = create_socket(&interface, remote_ip, remote_port);
+    // Create the TCP socket and establish a connection
+    let socket = create_socket(remote_ip, remote_port);
     println!("Socket created and connected to {}:{}", remote_ip, remote_port);
 
     process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
