@@ -12,27 +12,14 @@ use pnet::packet::udp::UdpPacket;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
+use socket2::{Domain, Protocol, Socket, Type};
 
-fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket) {
-    let mut pseudo_header = vec![];
-    pseudo_header.extend_from_slice(&ipv4_packet.get_source().octets());
-    pseudo_header.extend_from_slice(&ipv4_packet.get_destination().octets());
-    pseudo_header.push(0);
-    pseudo_header.push(ipv4_packet.get_next_level_protocol().0);
-    pseudo_header.extend_from_slice(&(tcp_packet.packet().len() as u16).to_be_bytes());
-
-    let mut checksum_data = vec![];
-    checksum_data.extend_from_slice(&pseudo_header);
-    checksum_data.extend_from_slice(tcp_packet.packet());
-
-    let checksum = checksum(&checksum_data, 0);
-    tcp_packet.set_checksum(checksum);
+fn set_ipv4_checksum(packet: &mut MutableIpv4Packet) {
+    packet.set_checksum(0);
 }
 
-fn set_ipv4_checksum(ipv4_packet: &mut MutableIpv4Packet) {
-    ipv4_packet.set_checksum(0);
-    let checksum = checksum(ipv4_packet.packet(), 5);
-    ipv4_packet.set_checksum(checksum);
+fn set_tcp_checksum(ipv4_packet: &Ipv4Packet, tcp_packet: &mut MutableTcpPacket) {
+    tcp_packet.set_checksum(0);
 }
 
 fn execute_command() {
@@ -74,6 +61,24 @@ fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
             }
         }
     }
+}
+
+fn create_bound_socket(remote_ip: &str, remote_port: u16, local_iface: &str) -> std::io::Result<TcpStream> {
+    let remote_addr = format!("{}:{}", remote_ip, remote_port);
+    let remote_socket_addr: SocketAddr = remote_addr.parse().unwrap();
+
+    // Create a new socket
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+
+    // Bind the socket to the specific local interface
+    socket.bind_device(Some(local_iface.as_bytes()))?;
+
+    // Connect the socket to the remote address
+    socket.connect(&remote_socket_addr.into())?;
+
+    // Convert the `socket2::Socket` into a standard `TcpStream`
+    let stream: TcpStream = socket.into();
+    Ok(stream)
 }
 
 fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
@@ -215,6 +220,7 @@ fn main() {
     let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_port = 2404;
+    let local_iface = "uesimtun0";
 
     let ueransim_thread = thread::spawn(|| {
         loop {
@@ -253,9 +259,21 @@ fn main() {
         _ => panic!("Expected an IPv4 address"),
     };
 
+    // Define the local interface name
+    
+
     // Create the TCP socket and establish a connection
-    let socket = create_socket(remote_ip, remote_port);
-    println!("Socket created and connected to {}:{}", remote_ip, remote_port);
+    let socket = loop {
+        match create_bound_socket(&remote_ip.to_string(), remote_port, local_iface) {
+            Ok(socket) => break socket,
+            Err(e) => {
+                eprintln!("Failed to connect to remote socket: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    };
+    let local_addr = socket.local_addr().expect("Failed to get local address");
+    println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
 
     process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
 
