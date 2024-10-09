@@ -3,6 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::net::{IpAddr, Ipv4Addr, TcpStream, SocketAddr, UdpSocket};
 use std::io::{Read, Write};
+use std::env;
 use pcap::Capture;
 use pnet::packet::{Packet, MutablePacket};
 use pnet::packet::ethernet::EthernetPacket;
@@ -13,6 +14,7 @@ use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
 use pnet::util::checksum;
 use socket2::{Domain, Protocol, Socket, Type};
+use std::net::TcpListener;
 
 fn set_ipv4_checksum(packet: &mut MutableIpv4Packet) {
     packet.set_checksum(0);
@@ -50,7 +52,12 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     }
     None
 }
+fn create_socket() -> TcpListener {
+    let listener = TcpListener::bind(("0.0.0.0", 2404)).expect("Failed to bind to port 2404");
+    listener
+}
 
+/* // Antigua función de crear socket (Deprecated)
 fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
     loop {
         match TcpStream::connect((remote_ip, remote_port)) {
@@ -62,21 +69,18 @@ fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
         }
     }
 }
+*/
 
 fn create_bound_socket(remote_ip: &str, remote_port: u16, local_iface: &str) -> std::io::Result<TcpStream> {
     let remote_addr = format!("{}:{}", remote_ip, remote_port);
     let remote_socket_addr: SocketAddr = remote_addr.parse().unwrap();
 
-    // Create a new socket
+    // Crea socket
     let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
-
-    // Bind the socket to the specific local interface
     socket.bind_device(Some(local_iface.as_bytes()))?;
-
-    // Connect the socket to the remote address
     socket.connect(&remote_socket_addr.into())?;
 
-    // Convert the `socket2::Socket` into a standard `TcpStream`
+    // Convierte el socket en un TcpStream
     let stream: TcpStream = socket.into();
     Ok(stream)
 }
@@ -216,8 +220,26 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} --client | --server", args[0]);
+        std::process::exit(1);
+    }
+
+    match args[1].as_str() {
+        "--client" => run_client(),
+        "--server" => run_server(),
+        _ => {
+            eprintln!("Invalid argument: {}. Use --client or --server.", args[1]);
+            std::process::exit(1);
+        }
+    }
+}
+
+
+fn run_client() {
+    println!("Running in client mode");
     let pcap_file = "industroyer2.pcap";
-    let destination_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_ip = Ipv4Addr::new(192, 168, 10, 3);
     let remote_port = 2404;
     let local_iface = "uesimtun0";
@@ -259,10 +281,7 @@ fn main() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    // Define the local interface name
-    
-
-    // Create the TCP socket and establish a connection
+    // Crea el socket TCP
     let socket = loop {
         match create_bound_socket(&remote_ip.to_string(), remote_port, local_iface) {
             Ok(socket) => break socket,
@@ -275,8 +294,59 @@ fn main() {
     let local_addr = socket.local_addr().expect("Failed to get local address");
     println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
 
-    process_pcap(pcap_file, source_ip, destination_ip, &interface, socket);
+    // Empieza a mandar tráfico (quitar para debbuging)
+    process_pcap(pcap_file, source_ip, remote_ip, &interface, socket);
 
     // Esto hay que mejorarlo
     ueransim_thread.join().unwrap();
+}
+
+
+
+
+fn run_server() {
+    println!("Running in server mode");
+    let pcap_file = "industroyer2.pcap";
+
+    let interface_name = "ens4";
+    let interface = find_interface(interface_name).expect("Network interface not found");
+    let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
+
+    let source_ip = match source_ip {
+        IpAddr::V4(ipv4) => ipv4,
+        _ => panic!("Expected an IPv4 address"),
+    };
+
+    // Create the socket
+    let listener = create_socket();
+    println!("Server listening on port 2404");
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(socket) => {
+                // Extract the client's IP address and port from the socket
+                let client_addr = match socket.peer_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        println!("Failed to get client address: {}", e);
+                        continue;
+                    }
+                };
+                
+                let client_ip = match client_addr.ip() {
+                    IpAddr::V4(ipv4) => ipv4,
+                    _ => panic!("Expected an IPv4 address from the client"),
+                };
+
+                let client_port = client_addr.port();
+
+                println!("New connection from client IP: {}, Port: {}", client_ip, client_port);
+                // Handle the connection and use client's IP and port as the destination
+                process_pcap(pcap_file, source_ip, client_ip, &interface, socket);
+            }
+            Err(e) => {
+                println!("Connection failed: {}", e);
+            }
+        }
+    }
 }
