@@ -1,4 +1,4 @@
-# TRAFIK
+# KitsuNet
 ### Envío de tráfico sintético
 
 prerequisitos:
