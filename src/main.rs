@@ -1,24 +1,24 @@
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
-use std::net::{IpAddr, Ipv4Addr, TcpStream, SocketAddr, UdpSocket};
-use std::io::{Read, Write};
-use std::env;
 use pcap::Capture;
-use pnet::packet::{Packet, MutablePacket};
-use pnet::packet::ethernet::EthernetPacket;
-use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
-use pnet::packet::tcp::{TcpPacket, MutableTcpPacket};
-use pnet::packet::udp::UdpPacket;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
-use pnet::util::checksum;
-use socket2::{Domain, Protocol, Socket, Type};
-use std::net::TcpListener;
-use std::fs;
+use pnet::packet::ethernet::EthernetPacket;
+use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
+use pnet::packet::tcp::{MutableTcpPacket, TcpPacket};
+use pnet::packet::udp::UdpPacket;
+use pnet::packet::{MutablePacket, Packet};
 use serde::Deserialize;
+use socket2::{Domain, Protocol, Socket, Type};
+use std::env;
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
 use toml;
-
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -95,7 +95,11 @@ fn create_socket(remote_ip: Ipv4Addr, remote_port: u16) -> TcpStream {
 }
 */
 
-fn create_bound_socket(remote_ip: &str, remote_port: u16, local_iface: &str) -> std::io::Result<TcpStream> {
+fn create_bound_socket(
+    remote_ip: &str,
+    remote_port: u16,
+    local_iface: &str,
+) -> std::io::Result<TcpStream> {
     let remote_addr = format!("{}:{}", remote_ip, remote_port);
     let remote_socket_addr: SocketAddr = remote_addr.parse().unwrap();
 
@@ -109,7 +113,13 @@ fn create_bound_socket(remote_ip: &str, remote_port: u16, local_iface: &str) -> 
     Ok(stream)
 }
 
-fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: &NetworkInterface, mut socket: TcpStream) {
+fn process_pcap(
+    file_path: &str,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    interface: &NetworkInterface,
+    mut socket: TcpStream,
+) {
     loop {
         let mut cap = match Capture::from_file(file_path) {
             Ok(cap) => cap,
@@ -147,21 +157,33 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                     if let Some(ipv4_packet) = Ipv4Packet::new(ethernet_packet.payload()) {
                         if let Some(tcp_packet) = TcpPacket::new(ipv4_packet.payload()) {
                             if tcp_packet.get_destination() == 2404 {
-                                let mut ipv4_buffer = vec![0u8; Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()];
-                                let mut new_ipv4_packet = match MutableIpv4Packet::new(&mut ipv4_buffer) {
-                                    Some(packet) => packet,
-                                    None => {
-                                        eprintln!("Failed to create mutable IPv4 packet. Retrying...");
-                                        thread::sleep(Duration::from_secs(5));
-                                        continue;
-                                    }
-                                };
+                                let mut ipv4_buffer = vec![
+                                    0u8;
+                                    Ipv4Packet::minimum_packet_size()
+                                        + ipv4_packet.payload().len()
+                                ];
+                                let mut new_ipv4_packet =
+                                    match MutableIpv4Packet::new(&mut ipv4_buffer) {
+                                        Some(packet) => packet,
+                                        None => {
+                                            eprintln!(
+                                                "Failed to create mutable IPv4 packet. Retrying..."
+                                            );
+                                            thread::sleep(Duration::from_secs(5));
+                                            continue;
+                                        }
+                                    };
 
-                                new_ipv4_packet.set_version(4); 
+                                new_ipv4_packet.set_version(4);
                                 new_ipv4_packet.set_header_length(5);
-                                new_ipv4_packet.set_total_length((Ipv4Packet::minimum_packet_size() + ipv4_packet.payload().len()) as u16);
-                                new_ipv4_packet.set_ttl(64); 
-                                new_ipv4_packet.set_next_level_protocol(ipv4_packet.get_next_level_protocol());
+                                new_ipv4_packet.set_total_length(
+                                    (Ipv4Packet::minimum_packet_size()
+                                        + ipv4_packet.payload().len())
+                                        as u16,
+                                );
+                                new_ipv4_packet.set_ttl(64);
+                                new_ipv4_packet
+                                    .set_next_level_protocol(ipv4_packet.get_next_level_protocol());
 
                                 new_ipv4_packet.clone_from(&ipv4_packet);
 
@@ -172,32 +194,51 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
                                 println!("--- IPv4 Layer ---");
                                 println!("Source IP: {:?}", new_ipv4_packet.get_source());
                                 println!("Destination IP: {:?}", new_ipv4_packet.get_destination());
-                                println!("Protocol: {:?}", new_ipv4_packet.get_next_level_protocol());
+                                println!(
+                                    "Protocol: {:?}",
+                                    new_ipv4_packet.get_next_level_protocol()
+                                );
                                 println!("Checksum: {:?}", new_ipv4_packet.get_checksum());
 
-                                if let Some(mut tcp_packet) = MutableTcpPacket::new(new_ipv4_packet.payload_mut()) {
+                                if let Some(mut tcp_packet) =
+                                    MutableTcpPacket::new(new_ipv4_packet.payload_mut())
+                                {
                                     set_tcp_checksum(&ipv4_packet, &mut tcp_packet); // Calculate and set TCP checksum
                                     println!("--- TCP Layer ---");
                                     println!("Source Port: {:?}", tcp_packet.get_source());
-                                    println!("Destination Port: {:?}", tcp_packet.get_destination());
+                                    println!(
+                                        "Destination Port: {:?}",
+                                        tcp_packet.get_destination()
+                                    );
                                     println!("Sequence Number: {:?}", tcp_packet.get_sequence());
-                                    println!("Acknowledgment Number: {:?}", tcp_packet.get_acknowledgement());
+                                    println!(
+                                        "Acknowledgment Number: {:?}",
+                                        tcp_packet.get_acknowledgement()
+                                    );
                                     println!("Flags: {:?}", tcp_packet.get_flags());
-                                } else if let Some(udp_packet) = UdpPacket::new(new_ipv4_packet.payload()) {
+                                } else if let Some(udp_packet) =
+                                    UdpPacket::new(new_ipv4_packet.payload())
+                                {
                                     println!("--- UDP Layer ---");
                                     println!("Source Port: {:?}", udp_packet.get_source());
-                                    println!("Destination Port: {:?}", udp_packet.get_destination());
+                                    println!(
+                                        "Destination Port: {:?}",
+                                        udp_packet.get_destination()
+                                    );
                                     println!("Length: {:?}", udp_packet.get_length());
                                     println!("Checksum: {:?}", udp_packet.get_checksum());
                                 }
 
                                 println!("IPv4 Packet: {:?}", ipv4_packet);
                                 println!("Ethernet Packet: {:?}", ethernet_packet);
-                                println!("TCP Packet: {:?}", TcpPacket::new(ipv4_packet.payload()).unwrap());
+                                println!(
+                                    "TCP Packet: {:?}",
+                                    TcpPacket::new(ipv4_packet.payload()).unwrap()
+                                );
 
                                 println!("New IPv4 Packet: {:?}", new_ipv4_packet);
 
-                                // Send 
+                                // Send
                                 if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
                                     eprintln!("Failed to send packet: {}. Retrying...", e);
                                     thread::sleep(Duration::from_secs(5));
@@ -206,21 +247,32 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
 
                                 // Send the packet through the TCP socket
                                 if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                                    eprintln!("Failed to send packet through TCP socket: {}. Retrying...", e);
+                                    eprintln!(
+                                        "Failed to send packet through TCP socket: {}. Retrying...",
+                                        e
+                                    );
                                     thread::sleep(Duration::from_secs(5));
                                     continue;
                                 }
 
                                 // Print the entire sent packet data in hexadecimal format
-                                let sent_packet_hex: String = new_ipv4_packet.packet().iter().map(|byte| format!("{:02x}", byte)).collect();
+                                let sent_packet_hex: String = new_ipv4_packet
+                                    .packet()
+                                    .iter()
+                                    .map(|byte| format!("{:02x}", byte))
+                                    .collect();
                                 println!("Sent Packet Data: {}", sent_packet_hex);
                             } else {
                                 // Listen on the socket and skip one PCAP row for each packet received
                                 let mut buffer = [0; 1024];
-                                socket.set_read_timeout(Some(Duration::from_secs(10))).expect("Failed to set read timeout");
+                                socket
+                                    .set_read_timeout(Some(Duration::from_secs(10)))
+                                    .expect("Failed to set read timeout");
                                 match socket.read(&mut buffer) {
                                     Ok(_) => {
-                                        println!("Received packet on socket, skipping one PCAP row.");
+                                        println!(
+                                            "Received packet on socket, skipping one PCAP row."
+                                        );
                                         continue;
                                     }
                                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -241,7 +293,6 @@ fn process_pcap(file_path: &str, src_ip: Ipv4Addr, dst_ip: Ipv4Addr, interface: 
         }
     }
 }
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -316,12 +367,17 @@ fn run_client() {
         }
     };
     let local_addr = socket.local_addr().expect("Failed to get local address");
-    println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
+    println!(
+        "Socket created and connected to {}:{} from {}:{}",
+        remote_ip,
+        remote_port,
+        local_addr.ip(),
+        local_addr.port()
+    );
 
     // Empieza a mandar tráfico (quitar para debbuging)
     process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
 }
-
 
 fn run_5gclient() {
     println!("Running in client mode");
@@ -341,14 +397,12 @@ fn run_5gclient() {
     let remote_port = client_config.remote_port;
     let local_iface = client_config.local_iface;
 
-    let ueransim_thread = thread::spawn(|| {
-        loop {
-            println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
-            execute_command();
-            thread::sleep(Duration::from_secs(5));
-        }
+    let ueransim_thread = thread::spawn(|| loop {
+        println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
+        execute_command();
+        thread::sleep(Duration::from_secs(5));
     });
-    
+
     // Empezar antes de ejecutar el otro hilo
     thread::sleep(Duration::from_secs(15));
 
@@ -389,7 +443,13 @@ fn run_5gclient() {
         }
     };
     let local_addr = socket.local_addr().expect("Failed to get local address");
-    println!("Socket created and connected to {}:{} from {}:{}", remote_ip, remote_port, local_addr.ip(), local_addr.port());
+    println!(
+        "Socket created and connected to {}:{} from {}:{}",
+        remote_ip,
+        remote_port,
+        local_addr.ip(),
+        local_addr.port()
+    );
 
     // Empieza a mandar tráfico (quitar para debbuging)
     process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
@@ -398,10 +458,6 @@ fn run_5gclient() {
     ueransim_thread.join().unwrap();
 }
 
-
-
-
-
 fn run_server() {
     println!("Running in server mode");
     let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
@@ -409,10 +465,8 @@ fn run_server() {
 
     let server_config = config.server;
 
-    let pcap_file = server_config.pcap_file;
+    let pcap_file = Arc::new(server_config.pcap_file);
     let local_iface = server_config.local_iface;
-    //let pcap_file = "industroyer2.pcap";
-    //let interface_name = "ens4";
     let interface = find_interface(&local_iface).expect("Network interface not found");
     let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
 
@@ -421,32 +475,42 @@ fn run_server() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    // Create the socket
     let listener = create_socket();
     println!("Server listening on port 2404");
+
+    let interface = Arc::new(interface);
+    let source_ip = Arc::new(source_ip);
 
     for stream in listener.incoming() {
         match stream {
             Ok(socket) => {
-                // Extract the client's IP address and port from the socket
-                let client_addr = match socket.peer_addr() {
-                    Ok(addr) => addr,
-                    Err(e) => {
-                        println!("Failed to get client address: {}", e);
-                        continue;
-                    }
-                };
-                
-                let client_ip = match client_addr.ip() {
-                    IpAddr::V4(ipv4) => ipv4,
-                    _ => panic!("Expected an IPv4 address from the client"),
-                };
+                let pcap_file = Arc::clone(&pcap_file);
+                let interface = Arc::clone(&interface);
+                let source_ip = Arc::clone(&source_ip);
 
-                let client_port = client_addr.port();
+                thread::spawn(move || {
+                    let client_addr = match socket.peer_addr() {
+                        Ok(addr) => addr,
+                        Err(e) => {
+                            println!("Failed to get client address: {}", e);
+                            return;
+                        }
+                    };
 
-                println!("New connection from client IP: {}, Port: {}", client_ip, client_port);
-                // Handle the connection and use client's IP and port as the destination
-                process_pcap(&pcap_file, source_ip, client_ip, &interface, socket);
+                    let client_ip = match client_addr.ip() {
+                        IpAddr::V4(ipv4) => ipv4,
+                        _ => panic!("Expected an IPv4 address from the client"),
+                    };
+
+                    let client_port = client_addr.port();
+
+                    println!(
+                        "New connection from client IP: {}, Port: {}",
+                        client_ip, client_port
+                    );
+
+                    process_pcap(&pcap_file, *source_ip, client_ip, &interface, socket);
+                });
             }
             Err(e) => {
                 println!("Connection failed: {}", e);
