@@ -1,12 +1,13 @@
-use crate::bin::network::{create_bound_socket, find_interface, get_source_ip};
-use crate::bin::pcap::process_pcap;
-use std::fs;
-use std::net::Ipv4Addr;
+use crate::network::{create_bound_socket, find_interface, get_source_ip};
+use crate::pcap::process_pcap;
 use serde::Deserialize;
-use std::net::IpAddr;
+use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
 use std::thread;
+use std::process::Command;
 use std::time::Duration;
 use toml;
+
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -28,7 +29,7 @@ struct ServerConfig {
     local_iface: String,
 }
 
-pub fn run_client() {
+pub fn run_5gclient() {
     println!("Running in client mode");
     let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
     let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
@@ -40,8 +41,17 @@ pub fn run_client() {
     let remote_port = client_config.remote_port;
     let local_iface = client_config.local_iface;
 
+    let ueransim_thread = thread::spawn(|| loop {
+        println!("Interface 'uesimtun0' not found. Re-executing 'build/nr-ue'...");
+        execute_command();
+        thread::sleep(Duration::from_secs(5));
+    });
+
+    thread::sleep(Duration::from_secs(15));
+
+    let interface_name = "uesimtun0";
     let interface = loop {
-        match find_interface(&local_iface) {
+        match find_interface(interface_name) {
             Some(iface) => break iface,
             None => {
                 eprintln!("Network interface not found. Retrying...");
@@ -84,4 +94,16 @@ pub fn run_client() {
     );
 
     process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
+
+    ueransim_thread.join().unwrap();
+}
+
+fn execute_command() {
+    println!("Executing 'build/nr-ue' command...");
+    Command::new("sudo")
+        .arg("ueransim/build/nr-ue")
+        .arg("-c")
+        .arg("ueransim/config/open5gs-ue.yaml")
+        .status()
+        .expect("Failed to execute 'build/nr-ue'");
 }

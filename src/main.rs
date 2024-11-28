@@ -1,11 +1,11 @@
-use crate::bin::network;
-use crate::bin::client;
-use crate::bin::_5gclient;
-use crate::bin::server;
+mod network;
+mod client;
+mod client5g;
+mod server;
 
-use bin::client::run_client;
-use bin::_5gclient::run_5gclient;
-use bin::server::run_server;
+use client::run_client;
+use client5g::run_5gclient;
+use server::run_server;
 use std::env;
 
 fn main() {

@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 use pnet::datalink::Channel::Ethernet;
 use pnet::datalink;
-use crate::bin::network::{set_ipv4_checksum, set_tcp_checksum};
+use crate::network::{set_ipv4_checksum, set_tcp_checksum};
 
 pub fn process_pcap(
     file_path: &str,

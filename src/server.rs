@@ -1,5 +1,5 @@
-use crate::bin::network::{create_socket, find_interface, get_source_ip};
-use crate::bin::pcap::process_pcap;
+use crate::network::{create_socket, find_interface, get_source_ip};
+use crate::pcap::process_pcap;
 use serde::Deserialize;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
