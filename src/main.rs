@@ -1,7 +1,7 @@
 use pcap::Capture;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
-use pnet::packet::ethernet::EthernetPacket;
+use pnet::packet::ethernet::{EthernetPacket, MutableEthernetPacket};
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
 use pnet::packet::tcp::{MutableTcpPacket, TcpPacket};
 use pnet::packet::udp::UdpPacket;
@@ -20,7 +20,8 @@ use toml;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::error::Error;
-
+use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::util::MacAddr;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -115,7 +116,94 @@ fn create_bound_socket(
     Ok(stream)
 }
 
+fn process_pcap(
+    file_path: &str,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    interface: &NetworkInterface,
+    mut socket: TcpStream,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        let mut cap: Capture<pcap::Offline> = Capture::from_file(file_path)?;
 
+        let (mut tx, _rx) = match datalink::channel(interface, Default::default()) {
+            Ok(Ethernet(tx, _rx)) => (tx, _rx),
+            Ok(_) => {
+                eprintln!("Unhandled channel type. Retrying...");
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Failed to create datalink channel: {}. Retrying...", e);
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            }
+        };
+
+        while let Ok(packet) = cap.next_packet() {
+            // Parse the original packet
+            let ethernet_packet = EthernetPacket::new(packet.data).unwrap();
+            let ipv4_packet = Ipv4Packet::new(ethernet_packet.payload()).unwrap();
+            let tcp_packet = TcpPacket::new(ipv4_packet.payload()).unwrap();
+
+            // Extract the application layer
+            let application_layer = tcp_packet.payload();
+
+            // Create new link layer
+            let mut new_ethernet_packet = MutableEthernetPacket::owned(vec![0u8; ethernet_packet.packet().len()]).unwrap();
+            new_ethernet_packet.set_destination(MacAddr::new(0, 0, 0, 0, 0, 1));
+            new_ethernet_packet.set_source(MacAddr::new(0, 0, 0, 0, 0, 2));
+            new_ethernet_packet.set_ethertype(ethernet_packet.get_ethertype());
+
+            // Create new internet layer
+            let mut new_ipv4_packet = MutableIpv4Packet::owned(vec![0u8; ipv4_packet.packet().len()]).unwrap();
+            new_ipv4_packet.set_version(4);
+            new_ipv4_packet.set_header_length(5);
+            new_ipv4_packet.set_total_length(ipv4_packet.get_total_length());
+            new_ipv4_packet.set_ttl(64);
+            new_ipv4_packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+            new_ipv4_packet.set_source(src_ip);
+            new_ipv4_packet.set_destination(dst_ip);
+
+            // Create new transport layer
+            let mut new_tcp_packet = MutableTcpPacket::owned(vec![0u8; tcp_packet.packet().len()]).unwrap();
+            new_tcp_packet.set_source(tcp_packet.get_source());
+            new_tcp_packet.set_destination(tcp_packet.get_destination());
+            new_tcp_packet.set_sequence(tcp_packet.get_sequence());
+            new_tcp_packet.set_acknowledgement(tcp_packet.get_acknowledgement());
+            new_tcp_packet.set_data_offset(tcp_packet.get_data_offset());
+            new_tcp_packet.set_flags(tcp_packet.get_flags());
+            new_tcp_packet.set_window(tcp_packet.get_window());
+            new_tcp_packet.set_checksum(tcp_packet.get_checksum());
+            new_tcp_packet.set_urgent_ptr(tcp_packet.get_urgent_ptr());
+
+            // Set the application layer
+            new_tcp_packet.set_payload(application_layer);
+
+            // Combine all layers into a new packet
+            new_ipv4_packet.set_payload(new_tcp_packet.packet());
+            new_ethernet_packet.set_payload(new_ipv4_packet.packet());
+
+            // Send the new packet
+            tx.send_to(new_ethernet_packet.packet(), None)
+                .ok_or("Failed to send packet")?;
+
+            // Send the packet through the TCP socket
+            socket.write_all(new_ethernet_packet.packet())?;
+
+            // Print the entire sent packet data in hexadecimal format
+            let sent_packet_hex: String = new_ethernet_packet
+                .packet()
+                .iter()
+                .map(|byte| format!("{:02x}", byte))
+                .collect::<Vec<String>>()
+                .join(" ");
+            println!("Sent Packet: {}", sent_packet_hex);
+        }
+    }
+}
+
+/* Antigua función de procesar PCAP (Deprecated)
 fn process_pcap(
     file_path: &str,
     src_ip: Ipv4Addr,
@@ -268,7 +356,7 @@ fn process_pcap(
             }
         }
     }
-}
+}*/
 
 fn main() {
     let args: Vec<String> = env::args().collect();
