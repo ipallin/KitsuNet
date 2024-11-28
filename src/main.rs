@@ -19,6 +19,8 @@ use std::time::Duration;
 use toml;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::error::Error;
+
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -113,22 +115,16 @@ fn create_bound_socket(
     Ok(stream)
 }
 
+
 fn process_pcap(
     file_path: &str,
     src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
     interface: &NetworkInterface,
     mut socket: TcpStream,
-) {
+) -> Result<(), Box<dyn Error>> {
     loop {
-        let mut cap = match Capture::from_file(file_path) {
-            Ok(cap) => cap,
-            Err(e) => {
-                eprintln!("Failed to open PCAP file: {}. Retrying...", e);
-                thread::sleep(Duration::from_secs(5));
-                continue;
-            }
-        };
+        let mut cap: Capture<pcap::Offline> = Capture::from_file(file_path)?;
 
         let (mut tx, _rx) = match datalink::channel(interface, Default::default()) {
             Ok(Ethernet(tx, _rx)) => (tx, _rx),
@@ -163,16 +159,8 @@ fn process_pcap(
                                         + ipv4_packet.payload().len()
                                 ];
                                 let mut new_ipv4_packet =
-                                    match MutableIpv4Packet::new(&mut ipv4_buffer) {
-                                        Some(packet) => packet,
-                                        None => {
-                                            eprintln!(
-                                                "Failed to create mutable IPv4 packet. Retrying..."
-                                            );
-                                            thread::sleep(Duration::from_secs(5));
-                                            continue;
-                                        }
-                                    };
+                                    MutableIpv4Packet::new(&mut ipv4_buffer)
+                                        .ok_or("Failed to create mutable IPv4 packet")?;
 
                                 new_ipv4_packet.set_version(4);
                                 new_ipv4_packet.set_header_length(5);
@@ -239,21 +227,11 @@ fn process_pcap(
                                 println!("New IPv4 Packet: {:?}", new_ipv4_packet);
 
                                 // Send
-                                if let Some(Err(e)) = tx.send_to(new_ipv4_packet.packet(), None) {
-                                    eprintln!("Failed to send packet: {}. Retrying...", e);
-                                    thread::sleep(Duration::from_secs(5));
-                                    continue;
-                                }
+                                tx.send_to(new_ipv4_packet.packet(), None)
+                                    .ok_or("Failed to send packet")?;
 
                                 // Send the packet through the TCP socket
-                                if let Err(e) = socket.write_all(new_ipv4_packet.packet()) {
-                                    eprintln!(
-                                        "Failed to send packet through TCP socket: {}. Retrying...",
-                                        e
-                                    );
-                                    thread::sleep(Duration::from_secs(5));
-                                    continue;
-                                }
+                                socket.write_all(new_ipv4_packet.packet())?;
 
                                 // Print the entire sent packet data in hexadecimal format
                                 let sent_packet_hex: String = new_ipv4_packet
@@ -265,9 +243,7 @@ fn process_pcap(
                             } else {
                                 // Listen on the socket and skip one PCAP row for each packet received
                                 let mut buffer = [0; 1024];
-                                socket
-                                    .set_read_timeout(Some(Duration::from_secs(10)))
-                                    .expect("Failed to set read timeout");
+                                socket.set_read_timeout(Some(Duration::from_secs(10)))?;
                                 match socket.read(&mut buffer) {
                                     Ok(_) => {
                                         println!(
@@ -489,27 +465,9 @@ fn run_server() {
                 let source_ip = Arc::clone(&source_ip);
 
                 thread::spawn(move || {
-                    let client_addr = match socket.peer_addr() {
-                        Ok(addr) => addr,
-                        Err(e) => {
-                            println!("Failed to get client address: {}", e);
-                            return;
-                        }
-                    };
-
-                    let client_ip = match client_addr.ip() {
-                        IpAddr::V4(ipv4) => ipv4,
-                        _ => panic!("Expected an IPv4 address from the client"),
-                    };
-
-                    let client_port = client_addr.port();
-
-                    println!(
-                        "New connection from client IP: {}, Port: {}",
-                        client_ip, client_port
-                    );
-
-                    process_pcap(&pcap_file, *source_ip, client_ip, &interface, socket);
+                    if let Err(e) = handle_client(socket, pcap_file, interface, source_ip) {
+                        println!("Error handling client: {}", e);
+                    }
                 });
             }
             Err(e) => {
@@ -517,4 +475,31 @@ fn run_server() {
             }
         }
     }
+}
+
+fn handle_client(
+    mut socket: TcpStream,
+    pcap_file: Arc<String>,
+    interface: Arc<NetworkInterface>,
+    source_ip: Arc<Ipv4Addr>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let client_addr = socket.peer_addr()?;
+    let client_ip = match client_addr.ip() {
+        IpAddr::V4(ipv4) => ipv4,
+        _ => panic!("Expected an IPv4 address from the client"),
+    };
+
+    let client_port = client_addr.port();
+
+    println!(
+        "New connection from client IP: {}, Port: {}",
+        client_ip, client_port
+    );
+
+    // Ensure the socket is active before processing the PCAP file
+    socket.set_nonblocking(true)?;
+
+    process_pcap(&pcap_file, *source_ip, client_ip, &interface, socket)?;
+
+    Ok(())
 }

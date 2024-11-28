@@ -1,6 +1,6 @@
 [client]
 pcap_file = "industroyer2.pcap"
-remote_ip = "192.168.10.3"
+remote_ip = "10.200.10.222"
 remote_port = 2404
 local_iface = "ens192"
 
