@@ -1,3 +1,4 @@
+use libc::sleep;
 use pcap::Capture;
 use pnet::datalink::NetworkInterface;
 use pnet::datalink::{self, Channel::Ethernet};
@@ -190,6 +191,7 @@ fn process_pcap(
 
             // Send the packet through the TCP socket
             socket.write_all(new_ethernet_packet.packet())?;
+            thread::sleep(Duration::from_secs(1));
 
             // Print the entire sent packet data in hexadecimal format
             let sent_packet_hex: String = new_ethernet_packet
