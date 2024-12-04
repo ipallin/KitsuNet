@@ -189,8 +189,8 @@ fn process_pcap(
             tx.send_to(new_ethernet_packet.packet(), None)
                 .ok_or("Failed to send packet")?;
 
-            // Send the packet through the TCP socket
-            socket.write_all(new_ethernet_packet.packet())?;
+            // Send the payload through the TCP socket
+            socket.write_all(application_layer)?;
             thread::sleep(Duration::from_secs(1));
 
             // Print the entire sent packet data in hexadecimal format
