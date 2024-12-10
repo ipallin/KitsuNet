@@ -204,6 +204,8 @@ fn process_pcap(
                 .join(" ");
             println!("Sent Packet: {}", sent_packet_hex);
         }
+
+        println!("Reached end of PCAP file, restarting...");
     }
 }
 

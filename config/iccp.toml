@@ -1,10 +1,10 @@
 [client]
-pcap_file = "industroyer2.pcap"
+pcap_file = "pcap/ICCP_anon.pcap"
 remote_ip = "192.168.10.3"
 remote_port = 102
 local_iface = "ens192"
 
 [server]
-pcap_file = "industroyer2.pcap"
+pcap_file = "pcap/ICCP_anon.pcap"
 local_iface = "ens192"
 port = 102
