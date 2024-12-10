@@ -42,6 +42,7 @@ struct ClientConfig {
 struct ServerConfig {
     pcap_file: String,
     local_iface: String,
+    port: u16,
 }
 
 fn set_ipv4_checksum(packet: &mut MutableIpv4Packet) {
@@ -80,8 +81,9 @@ fn get_source_ip(interface: &NetworkInterface) -> Option<IpAddr> {
     }
     None
 }
-fn create_socket() -> TcpListener {
-    let listener = TcpListener::bind(("0.0.0.0", 2404)).expect("Failed to bind to port 2404");
+
+fn create_socket(port: u16) -> TcpListener {
+    let listener = TcpListener::bind(("0.0.0.0", port)).expect("Failed to bind to port");
     listener
 }
 
@@ -363,22 +365,50 @@ fn process_pcap(
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} --client | --5gclient | --server", args[0]);
+        eprintln!("Usage: {} --client | --5gclient | --server [--config <FILE>]", args[0]);
         std::process::exit(1);
     }
 
-    match args[1].as_str() {
-        "--client" => run_client(),
-        "--server" => run_server(),
-        "--5gclient" => run_5gclient(),
-        _ => {
-            eprintln!("Invalid argument: {}. Use --client or --server.", args[1]);
-            std::process::exit(1);
+    let mut config_file = "config/config.toml";
+    let mut mode = "";
+
+    for i in 1..args.len() {
+        match args[i].as_str() {
+            "--client" => mode = "client",
+            "--server" => mode = "server",
+            "--5gclient" => mode = "5gclient",
+            "--config" => {
+                if i + 1 < args.len() {
+                    config_file = &args[i + 1];
+                } else {
+                    eprintln!("Usage: {} --client | --5gclient | --server [--config <FILE>]", args[0]);
+                    std::process::exit(1);
+                }
+            }
+            _ => {}
         }
+    }
+
+    if mode.is_empty() {
+        eprintln!("Invalid argument. Use --client, --server, or --5gclient.");
+        std::process::exit(1);
+    }
+
+    println!("Using config file: {}", config_file);
+
+    // Load the config file
+    let config_content = fs::read_to_string(config_file)
+        .expect("Failed to read config file");
+
+    match mode {
+        "client" => run_client(config_file),
+        "server" => run_server(config_file),
+        "5gclient" => run_5gclient(config_file),
+        _ => unreachable!(),
     }
 }
 
-fn run_client() {
+fn run_client(config_file: &str) {
     println!("Running in client mode");
     /* // Variables hardcodeadas (solo para debbuging)
     let pcap_file = "industroyer2.pcap";
@@ -386,8 +416,8 @@ fn run_client() {
     let remote_port = 2404;
     let local_iface = "uesimtun0";
     */
-    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
-    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
+    let config_content = fs::read_to_string(config_file).expect("Failed to read config file");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config file");
 
     let client_config = config.client;
 
@@ -445,7 +475,7 @@ fn run_client() {
     process_pcap(&pcap_file, source_ip, remote_ip, &interface, socket);
 }
 
-fn run_5gclient() {
+fn run_5gclient(config_file: &str) {
     println!("Running in client mode");
     /* // Variables hardcodeadas (solo para debbuging)
     let pcap_file = "industroyer2.pcap";
@@ -453,8 +483,8 @@ fn run_5gclient() {
     let remote_port = 2404;
     let local_iface = "uesimtun0";
     */
-    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
-    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
+    let config_content = fs::read_to_string(config_file).expect("Failed to read config file");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config file");
 
     let client_config = config.client;
 
@@ -524,15 +554,16 @@ fn run_5gclient() {
     ueransim_thread.join().unwrap();
 }
 
-fn run_server() {
+fn run_server(config_file: &str) {
     println!("Running in server mode");
-    let config_content = fs::read_to_string("config.toml").expect("Failed to read config.toml");
-    let config: Config = toml::from_str(&config_content).expect("Failed to parse config.toml");
+    let config_content = fs::read_to_string(config_file).expect("Failed to read config file");
+    let config: Config = toml::from_str(&config_content).expect("Failed to parse config file");
 
     let server_config = config.server;
 
     let pcap_file = Arc::new(server_config.pcap_file);
     let local_iface = server_config.local_iface;
+    let port = server_config.port;
     let interface = find_interface(&local_iface).expect("Network interface not found");
     let source_ip = get_source_ip(&interface).expect("Failed to get source IP");
 
@@ -541,8 +572,8 @@ fn run_server() {
         _ => panic!("Expected an IPv4 address"),
     };
 
-    let listener = create_socket();
-    println!("Server listening on port 2404");
+    let listener = create_socket(port);
+    println!("Server listening on port {}", port);
 
     let interface = Arc::new(interface);
     let source_ip = Arc::new(source_ip);

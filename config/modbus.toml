@@ -1,0 +1,10 @@
+[client]
+pcap_file = "pcap/modbus.pcapng"
+remote_ip = "192.168.10.3"
+remote_port = 502
+local_iface = "ens192"
+
+[server]
+pcap_file = "pcap/modbus.pcapng"
+local_iface = "ens192"
+port = 502
